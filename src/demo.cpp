@@ -21,6 +21,7 @@
 
 #include "ros2_api.h"
 #include "ldlidar_driver.h"
+#include <filesystem>
 
 void  ToLaserscanMessagePublish(ldlidar::Points2D& src, double lidar_spin_freq, LaserScanSetting& setting,
   rclcpp::Node::SharedPtr& node, rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr& lidarpub);
@@ -28,6 +29,7 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src, double lidar_spin_freq, 
 uint64_t GetSystemTimeStamp(void);
 
 int main(int argc, char **argv) {
+
   rclcpp::init(argc, argv);
   auto node = std::make_shared<rclcpp::Node>("ldlidar_published"); // create a ROS2 Node
   std::string product_name;
@@ -36,11 +38,16 @@ int main(int argc, char **argv) {
   int serial_port_baudrate;
   ldlidar::LDType type_name;
   LaserScanSetting setting;
-	setting.frame_id = "base_laser";
+	setting.frame_id = "laser";
   setting.laser_scan_dir = true;
   setting.enable_angle_crop_func = false;
   setting.angle_crop_min = 0.0;
   setting.angle_crop_max = 0.0;
+  
+  // Run the bash command to enable the USB ports using sudo uhubctl
+  if(system("sudo uhubctl -l 2 -a 1") != 0) {
+    RCLCPP_ERROR(node->get_logger(), "Could not enable USB ports!");
+  }
   
   // declare ros2 param
   node->declare_parameter<std::string>("product_name", product_name);
@@ -63,6 +70,15 @@ int main(int argc, char **argv) {
   node->get_parameter("enable_angle_crop_func", setting.enable_angle_crop_func);
   node->get_parameter("angle_crop_min", setting.angle_crop_min);
   node->get_parameter("angle_crop_max", setting.angle_crop_max);
+
+
+  // Wait for port to become available
+  while (!std::filesystem::exists(port_name) && rclcpp::ok()) {
+    rclcpp::sleep_for(std::chrono::milliseconds(200));
+    RCLCPP_INFO(node->get_logger(), "Waiting for %s...", port_name.c_str());
+  }
+
+  rclcpp::sleep_for(std::chrono::milliseconds(200));
 
   ldlidar::LDLidarDriver* ldlidarnode = new ldlidar::LDLidarDriver();
 
@@ -140,6 +156,10 @@ int main(int argc, char **argv) {
 
   RCLCPP_INFO(node->get_logger(), "ldlidar_published is end");
   rclcpp::shutdown();
+
+  if(system("sudo uhubctl -l 2 -a 0") != 0) {
+    RCLCPP_ERROR(node->get_logger(), "Could not shutdown USB ports!");
+  }
 
   return 0;
 }
